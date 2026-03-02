@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Webcam - Emotion AI</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="navbar">
+        <div class="nav-container">
+            <div class="nav-brand">
+                <div class="brand-icon">
+                    <i class="fas fa-brain"></i>
+                </div>
+                <span class="brand-text">Emotion<span class="brand-accent">AI</span></span>
+            </div>
+            <ul class="nav-menu">
+                <li><a href="/" class="nav-link"><i class="fas fa-home"></i> Home</a></li>
+                <li><a href="/upload" class="nav-link"><i class="fas fa-upload"></i> Upload</a></li>
+                <li><a href="/webcam" class="nav-link active"><i class="fas fa-video"></i> Webcam</a></li>
+                <li><a href="/training" class="nav-link"><i class="fas fa-cogs"></i> Training</a></li>
+                <li><a href="/results" class="nav-link"><i class="fas fa-chart-bar"></i> Results</a></li>
+            </ul>
+            <div class="nav-status">
+                <div class="status-indicator" id="modelStatus">
+                    <span class="status-dot"></span>
+                    <span class="status-text">Model {% if model_loaded %}Loaded{% else %}Not Loaded{% endif %}</span>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Page Header -->
+    <header class="page-header">
+        <h1 class="page-title">Live Detection</h1>
+        <p class="page-description">Real-time emotion detection from your webcam</p>
+    </header>
+
+    <!-- Webcam Section -->
+    <section class="webcam-section">
+        <div class="webcam-container">
+            <div class="webcam-wrapper">
+                <img src="/api/webcam/feed" class="webcam-video" id="webcamFeed" alt="Webcam Feed">
+                <div class="webcam-overlay">
+                    <div class="webcam-status">
+                        <span class="status-dot"></span>
+                        <span>Live Detection Active</span>
+                    </div>
+                    <div class="current-emotion" id="currentEmotion">
+                        <div class="emotion" id="liveEmotion">Waiting...</div>
+                        <div class="confidence" id="liveConfidence">Start your webcam to detect emotions</div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="webcam-controls" style="margin-top: 2rem; text-align: center;">
+                <p style="color: var(--text-secondary);">
+                    <i class="fas fa-info-circle"></i> 
+                    Allow camera access when prompted. The system will detect faces and analyze emotions in real-time.
+                </p>
+            </div>
+        </div>
+    </section>
+
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const webcamFeed = document.getElementById('webcamFeed');
+            
+            webcamFeed.onerror = function() {
+                console.log('Webcam stream error');
+                document.getElementById('liveEmotion').textContent = 'Camera not available';
+                document.getElementById('liveConfidence').textContent = 'Please allow camera access';
+            };
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Upload - Emotion AI</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="navbar">
+        <div class="nav-container">
+            <div class="nav-brand">
+                <div class="brand-icon">
+                    <i class="fas fa-brain"></i>
+                </div>
+                <span class="brand-text">Emotion<span class="brand-accent">AI</span></span>
+            </div>
+            <ul class="nav-menu">
+                <li><a href="/" class="nav-link"><i class="fas fa-home"></i> Home</a></li>
+                <li><a href="/upload" class="nav-link active"><i class="fas fa-upload"></i> Upload</a></li>
+                <li><a href="/webcam" class="nav-link"><i class="fas fa-video"></i> Webcam</a></li>
+                <li><a href="/training" class="nav-link"><i class="fas fa-cogs"></i> Training</a></li>
+                <li><a href="/results" class="nav-link"><i class="fas fa-chart-bar"></i> Results</a></li>
+            </ul>
+            <div class="nav-status">
+                <div class="status-indicator" id="modelStatus">
+                    <span class="status-dot"></span>
+                    <span class="status-text">Model {% if model_loaded %}Loaded{% else %}Not Loaded{% endif %}</span>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Page Header -->
+    <header class="page-header">
+        <h1 class="page-title">Upload & Detect</h1>
+        <p class="page-description">Upload images or videos for emotion analysis</p>
+    </header>
+
+    <!-- Upload Section -->
+    <section class="upload-section">
+        <div class="upload-container">
+            <!-- Upload Tabs -->
+            <div class="upload-tabs">
+                <div class="upload-tab active" data-tab="image">
+                    <i class="fas fa-image"></i>
+                    <h3>Image</h3>
+                    <p>Upload single or multiple images</p>
+                </div>
+                <div class="upload-tab" data-tab="video">
+                    <i class="fas fa-video"></i>
+                    <h3>Video</h3>
+                    <p>Upload video for frame-by-frame analysis</p>
+                </div>
+            </div>
+
+            <!-- Image Upload -->
+            <div class="upload-form active" id="imageForm">
+                <div class="upload-area" id="imageUploadArea">
+                    <i class="fas fa-cloud-upload-alt"></i>
+                    <h3>Drop your images here</h3>
+                    <p>or click to browse • Supports JPG, PNG, BMP</p>
+                    <input type="file" id="imageInput" accept="image/*" multiple>
+                </div>
+                
+                <div class="preview-container" id="imagePreview">
+                    <img src="" alt="Preview" class="preview-image" id="previewImg">
+                    <button class="btn btn-primary" id="predictImageBtn">
+                        <i class="fas fa-search"></i> Detect Emotion
+                    </button>
+                </div>
+
+                <div class="result-container" id="imageResult">
+                    <div class="result-header">
+                        <div class="result-emotion" id="resultEmotion">-</div>
+                        <div class="result-confidence" id="resultConfidence">-</div>
+                    </div>
+                    <div class="result-chart" id="resultChart"></div>
+                </div>
+            </div>
+
+            <!-- Video Upload -->
+            <div class="upload-form" id="videoForm">
+                <div class="upload-area" id="videoUploadArea">
+                    <i class="fas fa-film"></i>
+                    <h3>Drop your video here</h3>
+                    <p>or click to browse • Supports MP4, AVI, MOV</p>
+                    <input type="file" id="videoInput" accept="video/*">
+                </div>
+
+                <div class="preview-container" id="videoPreview">
+                    <video src="" controls class="preview-video" id="previewVideo"></video>
+                    <button class="btn btn-primary" id="predictVideoBtn">
+                        <i class="fas fa-play"></i> Process Video
+                    </button>
+                </div>
+
+                <div class="result-container" id="videoResult">
+                    <div class="result-header">
+                        <div class="result-emotion" id="videoResultEmotion">-</div>
+                        <div class="result-confidence" id="videoResultConfidence">-</div>
+                    </div>
+                    <div class="emotion-bars" id="videoEmotionBars"></div>
+                    <div class="video-result-link" id="videoResultLink"></div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+    <script>
+        // Upload page specific JS
+        document.addEventListener('DOMContentLoaded', function() {
+            const tabs = document.querySelectorAll('.upload-tab');
+            const forms = document.querySelectorAll('.upload-form');
+
+            tabs.forEach(tab => {
+                tab.addEventListener('click', function() {
+                    const tabName = this.dataset.tab;
+                    
+                    tabs.forEach(t => t.classList.remove('active'));
+                    forms.forEach(f => f.classList.remove('active'));
+                    
+                    this.classList.add('active');
+                    document.getElementById(tabName + 'Form').classList.add('active');
+                });
+            });
+
+            // Image upload handling
+            const imageUploadArea = document.getElementById('imageUploadArea');
+            const imageInput = document.getElementById('imageInput');
+            const imagePreview = document.getElementById('imagePreview');
+            const previewImg = document.getElementById('previewImg');
+            const predictImageBtn = document.getElementById('predictImageBtn');
+            const imageResult = document.getElementById('imageResult');
+
+            imageUploadArea.addEventListener('click', () => imageInput.click());
+            imageUploadArea.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                imageUploadArea.classList.add('dragover');
+            });
+            imageUploadArea.addEventListener('dragleave', () => {
+                imageUploadArea.classList.remove('dragover');
+            });
+            imageUploadArea.addEventListener('drop', (e) => {
+                e.preventDefault();
+                imageUploadArea.classList.remove('dragover');
+                if (e.dataTransfer.files.length) {
+                    handleImageFile(e.dataTransfer.files[0]);
+                }
+            });
+            imageInput.addEventListener('change', (e) => {
+                if (e.target.files.length) {
+                    handleImageFile(e.target.files[0]);
+                }
+            });
+
+            function handleImageFile(file) {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    previewImg.src = e.target.result;
+                    imagePreview.classList.add('active');
+                    imageResult.classList.remove('active');
+                };
+                reader.readAsDataURL(file);
+            }
+
+            predictImageBtn.addEventListener('click', async () => {
+                if (!imageInput.files.length) return;
+
+                const formData = new FormData();
+                formData.append('file', imageInput.files[0]);
+
+                predictImageBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
+                predictImageBtn.disabled = true;
+
+                try {
+                    const response = await fetch('/api/predict/image', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    const data = await response.json();
+
+                    if (data.success) {
+                        document.getElementById('resultEmotion').textContent = data.emotion;
+                        document.getElementById('resultConfidence').textContent = `Confidence: ${data.confidence.toFixed(1)}%`;
+                        
+                        const chart = document.getElementById('resultChart');
+                        chart.innerHTML = '';
+                        
+                        const sortedEmotions = Object.entries(data.all_emotions)
+                            .sort((a, b) => b[1] - a[1]);
+                        
+                        sortedEmotions.forEach(([emotion, percent]) => {
+                            const bar = document.createElement('div');
+                            bar.className = 'emotion-bar';
+                            bar.innerHTML = `
+                                <span class="emotion-bar-label">${emotion}</span>
+                                <div class="emotion-bar-track">
+                                    <div class="emotion-bar-fill" style="width: ${percent}%"></div>
+                                </div>
+                                <span class="emotion-bar-value">${percent.toFixed(1)}%</span>
+                            `;
+                            chart.appendChild(bar);
+                        });
+
+                        imageResult.classList.add('active');
+                    } else {
+                        alert('Error: ' + data.error);
+                    }
+                } catch (err) {
+                    alert('Error processing image');
+                }
+
+                predictImageBtn.innerHTML = '<i class="fas fa-search"></i> Detect Emotion';
+                predictImageBtn.disabled = false;
+            });
+
+            // Video upload handling
+            const videoUploadArea = document.getElementById('videoUploadArea');
+            const videoInput = document.getElementById('videoInput');
+            const videoPreview = document.getElementById('videoPreview');
+            const previewVideo = document.getElementById('previewVideo');
+            const predictVideoBtn = document.getElementById('predictVideoBtn');
+            const videoResult = document.getElementById('videoResult');
+
+            videoUploadArea.addEventListener('click', () => videoInput.click());
+            videoUploadArea.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                videoUploadArea.classList.add('dragover');
+            });
+            videoUploadArea.addEventListener('dragleave', () => {
+                videoUploadArea.classList.remove('dragover');
+            });
+            videoUploadArea.addEventListener('drop', (e) => {
+                e.preventDefault();
+                videoUploadArea.classList.remove('dragover');
+                if (e.dataTransfer.files.length) {
+                    handleVideoFile(e.dataTransfer.files[0]);
+                }
+            });
+            videoInput.addEventListener('change', (e) => {
+                if (e.target.files.length) {
+                    handleVideoFile(e.target.files[0]);
+                }
+            });
+
+            function handleVideoFile(file) {
+                const url = URL.createObjectURL(file);
+                previewVideo.src = url;
+                videoPreview.classList.add('active');
+                videoResult.classList.remove('active');
+            }
+
+            predictVideoBtn.addEventListener('click', async () => {
+                if (!videoInput.files.length) return;
+
+                const formData = new FormData();
+                formData.append('file', videoInput.files[0]);
+
+                predictVideoBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
+                predictVideoBtn.disabled = true;
+
+                try {
+                    const response = await fetch('/api/predict/video', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    const data = await response.json();
+
+                    if (data.success) {
+                        document.getElementById('videoResultEmotion').textContent = data.dominant_emotion;
+                        document.getElementById('videoResultConfidence').textContent = `Detected in ${data.total_frames} frames`;
+                        
+                        const bars = document.getElementById('videoEmotionBars');
+                        bars.innerHTML = '';
+                        
+                        const sortedEmotions = Object.entries(data.emotion_counts)
+                            .sort((a, b) => b[1] - a[1]);
+                        
+                        sortedEmotions.forEach(([emotion, count]) => {
+                            const percent = data.total_frames > 0 ? (count / data.total_frames * 100) : 0;
+                            const bar = document.createElement('div');
+                            bar.className = 'emotion-bar';
+                            bar.innerHTML = `
+                                <span class="emotion-bar-label">${emotion}</span>
+                                <div class="emotion-bar-track">
+                                    <div class="emotion-bar-fill" style="width: ${percent}%"></div>
+                                </div>
+                                <span class="emotion-bar-value">${count}</span>
+                            `;
+                            bars.appendChild(bar);
+                        });
+
+                        if (data.result_video) {
+                            document.getElementById('videoResultLink').innerHTML = 
+                                `<a href="${data.result_video}" class="btn btn-outline" target="_blank">
+                                    <i class="fas fa-download"></i> Download Result
+                                </a>`;
+                        }
+
+                        videoResult.classList.add('active');
+                    } else {
+                        alert('Error: ' + data.error);
+                    }
+                } catch (err) {
+                    alert('Error processing video');
+                }
+
+                predictVideoBtn.innerHTML = '<i class="fas fa-play"></i> Process Video';
+                predictVideoBtn.disabled = false;
+            });
+        });
+    </script>
+</body>
+</html>

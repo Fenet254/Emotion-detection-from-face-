@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Training - Emotion AI</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="navbar">
+        <div class="nav-container">
+            <div class="nav-brand">
+                <div class="brand-icon">
+                    <i class="fas fa-brain"></i>
+                </div>
+                <span class="brand-text">Emotion<span class="brand-accent">AI</span></span>
+            </div>
+            <ul class="nav-menu">
+                <li><a href="/" class="nav-link"><i class="fas fa-home"></i> Home</a></li>
+                <li><a href="/upload" class="nav-link"><i class="fas fa-upload"></i> Upload</a></li>
+                <li><a href="/webcam" class="nav-link"><i class="fas fa-video"></i> Webcam</a></li>
+                <li><a href="/training" class="nav-link active"><i class="fas fa-cogs"></i> Training</a></li>
+                <li><a href="/results" class="nav-link"><i class="fas fa-chart-bar"></i> Results</a></li>
+            </ul>
+            <div class="nav-status">
+                <div class="status-indicator" id="modelStatus">
+                    <span class="status-dot"></span>
+                    <span class="status-text">Model {% if model_loaded %}Loaded{% else %}Not Loaded{% endif %}</span>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Page Header -->
+    <header class="page-header">
+        <h1 class="page-title">Model Training</h1>
+        <p class="page-description">Train and improve the emotion detection model</p>
+    </header>
+
+    <!-- Training Section -->
+    <section class="training-section">
+        <div class="training-container">
+            <!-- Training Status Card -->
+            <div class="training-status-card">
+                <div class="training-header">
+                    <h2 class="training-title">Training Status</h2>
+                    <div class="training-actions">
+                        <button class="btn btn-start" id="startTrainingBtn">
+                            <i class="fas fa-play"></i> Start Training
+                        </button>
+                        <button class="btn btn-stop" id="stopTrainingBtn" style="display: none;">
+                            <i class="fas fa-stop"></i> Stop
+                        </button>
+                    </div>
+                </div>
+
+                <div class="progress-container">
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="trainingProgress" style="width: 0%"></div>
+                    </div>
+                    <div class="progress-text">
+                        <span id="progressText">Ready to train</span>
+                        <span id="progressPercent">0%</span>
+                    </div>
+                </div>
+
+                <!-- Metrics -->
+                <div class="metrics-grid">
+                    <div class="metric-card">
+                        <div class="metric-value" id="currentEpoch">0</div>
+                        <div class="metric-label">Current Epoch</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-value" id="totalEpochs">50</div>
+                        <div class="metric-label">Total Epochs</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-value" id="currentLoss">-</div>
+                        <div class="metric-label">Current Loss</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-value" id="bestAccuracy">-</div>
+                        <div class="metric-label">Best Accuracy</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Training Chart -->
+            <div class="training-chart">
+                <h3 style="margin-bottom: 1rem;">Training Progress</h3>
+                <canvas id="trainingChart"></canvas>
+            </div>
+
+            <!-- Dataset Info -->
+            <div class="training-status-card" style="margin-top: 2rem;">
+                <h3 style="margin-bottom: 1.5rem;">Dataset Information</h3>
+                <div class="metrics-grid">
+                    <div class="metric-card">
+                        <div class="metric-value">17,413</div>
+                        <div class="metric-label">Total Images</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-value">9</div>
+                        <div class="metric-label">Emotion Classes</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-value">80/20</div>
+                        <div class="metric-label">Train/Val Split</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-value">EfficientNet-B0</div>
+                        <div class="metric-label">Model Architecture</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const startBtn = document.getElementById('startTrainingBtn');
+            const stopBtn = document.getElementById('stopTrainingBtn');
+            const progressFill = document.getElementById('trainingProgress');
+            const progressText = document.getElementById('progressText');
+            const progressPercent = document.getElementById('progressPercent');
+            const currentEpoch = document.getElementById('currentEpoch');
+            const currentLoss = document.getElementById('currentLoss');
+            const bestAccuracy = document.getElementById('bestAccuracy');
+
+            let isTraining = false;
+
+            // Initialize Chart
+            const ctx = document.getElementById('trainingChart').getContext('2d');
+            const chart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'Training Accuracy',
+                        data: [],
+                        borderColor: '#6366f1',
+                        backgroundColor: 'rgba(99, 102, 241, 0.1)',
+                        fill: true,
+                        tension: 0.4
+                    }, {
+                        label: 'Validation Accuracy',
+                        data: [],
+                        borderColor: '#10b981',
+                        backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                        fill: true,
+                        tension: 0.4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            labels: { color: '#94a3b8' }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            ticks: { color: '#64748b' },
+                            grid: { color: 'rgba(255, 255, 255, 0.1)' }
+                        },
+                        y: {
+                            ticks: { color: '#64748b' },
+                            grid: { color: 'rgba(255, 255, 255, 0.1)' },
+                            min: 0,
+                            max: 100
+                        }
+                    }
+                }
+            });
+
+            // Start training
+            startBtn.addEventListener('click', async () => {
+                try {
+                    const response = await fetch('/api/training/start', {
+                        method: 'POST'
+                    });
+                    const data = await response.json();
+                    
+                    if (data.success) {
+                        isTraining = true;
+                        startBtn.style.display = 'none';
+                        stopBtn.style.display = 'inline-flex';
+                        progressText.textContent = 'Training started...';
+                    } else {
+                        alert('Error: ' + data.error);
+                    }
+                } catch (err) {
+                    alert('Error starting training');
+                }
+            });
+
+            // Poll training status
+            function pollStatus() {
+                fetch('/api/training/status')
+                    .then(res => res.json())
+                    .then(data => {
+                        if (data.is_training) {
+                            const progress = (data.current_epoch / data.total_epochs) * 100;
+                            progressFill.style.width = progress + '%';
+                            progressPercent.textContent = progress.toFixed(1) + '%';
+                            progressText.textContent = `Epoch ${data.current_epoch} of ${data.total_epochs}`;
+                            currentEpoch.textContent = data.current_epoch;
+                            currentLoss.textContent = data.current_loss.toFixed(4);
+                            bestAccuracy.textContent = data.best_acc.toFixed(2) + '%';
+
+                            // Update chart
+                            chart.data.labels.push('Epoch ' + data.current_epoch);
+                            chart.data.datasets[0].data.push(data.current_acc);
+                            chart.data.datasets[1].data.push(data.val_acc);
+                            chart.update();
+                        } else {
+                            isTraining = false;
+                            startBtn.style.display = 'inline-flex';
+                            stopBtn.style.display = 'none';
+                            if (data.best_acc > 0) {
+                                progressText.textContent = `Training complete! Best: ${data.best_acc.toFixed(2)}%`;
+                                bestAccuracy.textContent = data.best_acc.toFixed(2) + '%';
+                            }
+                        }
+                    })
+                    .catch(err => console.error(err));
+            }
+
+            // Poll every 5 seconds
+            setInterval(pollStatus, 5000);
+            pollStatus();
+        });
+    </script>
+</body>
+</html>

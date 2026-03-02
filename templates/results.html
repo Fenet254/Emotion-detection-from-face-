@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Results - Emotion AI</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="navbar">
+        <div class="nav-container">
+            <div class="nav-brand">
+                <div class="brand-icon">
+                    <i class="fas fa-brain"></i>
+                </div>
+                <span class="brand-text">Emotion<span class="brand-accent">AI</span></span>
+            </div>
+            <ul class="nav-menu">
+                <li><a href="/" class="nav-link"><i class="fas fa-home"></i> Home</a></li>
+                <li><a href="/upload" class="nav-link"><i class="fas fa-upload"></i> Upload</a></li>
+                <li><a href="/webcam" class="nav-link"><i class="fas fa-video"></i> Webcam</a></li>
+                <li><a href="/training" class="nav-link"><i class="fas fa-cogs"></i> Training</a></li>
+                <li><a href="/results" class="nav-link active"><i class="fas fa-chart-bar"></i> Results</a></li>
+            </ul>
+            <div class="nav-status">
+                <div class="status-indicator" id="modelStatus">
+                    <span class="status-dot"></span>
+                    <span class="status-text">Model {% if model_loaded %}Loaded{% else %}Not Loaded{% endif %}</span>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Page Header -->
+    <header class="page-header">
+        <h1 class="page-title">Results & Analytics</h1>
+        <p class="page-description">View prediction history and emotion statistics</p>
+    </header>
+
+    <!-- Results Section -->
+    <section class="results-section">
+        <div class="results-container">
+            <!-- Stats Overview -->
+            <div class="stats-overview">
+                <div class="overview-card">
+                    <div class="overview-value" id="totalPredictions">0</div>
+                    <div class="overview-label">Total Predictions</div>
+                </div>
+                <div class="overview-card">
+                    <div class="overview-value" id="imagesProcessed">0</div>
+                    <div class="overview-label">Images Processed</div>
+                </div>
+                <div class="overview-card">
+                    <div class="overview-value" id="videosProcessed">0</div>
+                    <div class="overview-label">Videos Processed</div>
+                </div>
+            </div>
+
+            <!-- Emotion Distribution -->
+            <div class="training-status-card" style="margin-bottom: 2rem;">
+                <h3 style="margin-bottom: 1.5rem;">Emotion Distribution</h3>
+                <canvas id="emotionChart" height="100"></canvas>
+            </div>
+
+            <!-- History Section -->
+            <div class="history-section">
+                <div class="history-header">
+                    <h2 class="history-title">Prediction History</h2>
+                    <button class="btn btn-outline" id="clearHistoryBtn">
+                        <i class="fas fa-trash"></i> Clear History
+                    </button>
+                </div>
+                
+                <div class="history-list" id="historyList">
+                    <!-- History items will be dynamically added here -->
+                </div>
+
+                <div class="history-empty" id="historyEmpty">
+                    <i class="fas fa-inbox"></i>
+                    <h3>No predictions yet</h3>
+                    <p>Start making predictions to see them here</p>
+                    <a href="/upload" class="btn btn-primary" style="margin-top: 1rem;">
+                        <i class="fas fa-upload"></i> Upload Image
+                    </a>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const historyList = document.getElementById('historyList');
+            const historyEmpty = document.getElementById('historyEmpty');
+            const clearHistoryBtn = document.getElementById('clearHistoryBtn');
+
+            // Emotion colors
+            const emotionColors = {
+                'angry': '#ef4444',
+                'confused': '#f59e0b',
+                'disgust': '#8b5cf6',
+                'fear': '#ec4899',
+                'happy': '#10b981',
+                'neutral': '#64748b',
+                'sad': '#3b82f6',
+                'shy': '#f97316',
+                'surprise': '#22d3ee'
+            };
+
+            // Initialize emotion distribution chart
+            const ctx = document.getElementById('emotionChart').getContext('2d');
+            const emotionLabels = ['angry', 'confused', 'disgust', 'fear', 'happy', 'neutral', 'sad', 'shy', 'surprise'];
+            const emotionChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: emotionLabels,
+                    datasets: [{
+                        label: 'Predictions',
+                        data: [0,0,0,0,0,0,0,0,0],
+                        backgroundColor: Object.values(emotionColors),
+                        borderRadius: 8
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: { display: false }
+                    },
+                    scales: {
+                        x: {
+                            ticks: { color: '#64748b' },
+                            grid: { display: false }
+                        },
+                        y: {
+                            ticks: { color: '#64748b' },
+                            grid: { color: 'rgba(255, 255, 255, 0.1)' }
+                        }
+                    }
+                }
+            });
+
+            // Load statistics
+            fetch('/api/statistics')
+                .then(res => res.json())
+                .then(data => {
+                    document.getElementById('totalPredictions').textContent = data.total_predictions;
+                    
+                    const imageCount = data.recent_predictions.filter(p => p.type === 'image').length;
+                    const videoCount = data.recent_predictions.filter(p => p.type === 'video').length;
+                    
+                    document.getElementById('imagesProcessed').textContent = imageCount;
+                    document.getElementById('videosProcessed').textContent = videoCount;
+
+                    // Update chart
+                    const emotionDist = Object.values(data.emotion_distribution);
+                    emotionChart.data.datasets[0].data = emotionDist;
+                    emotionChart.update();
+                })
+                .catch(err => console.error(err));
+
+            // Load history
+            function loadHistory() {
+                fetch('/api/history')
+                    .then(res => res.json())
+                    .then(data => {
+                        if (data.length === 0) {
+                            historyList.innerHTML = '';
+                            historyEmpty.style.display = 'block';
+                            return;
+                        }
+
+                        historyEmpty.style.display = 'none';
+                        historyList.innerHTML = '';
+
+                        data.forEach(item => {
+                            const historyItem = document.createElement('div');
+                            historyItem.className = 'history-item';
+                            
+                            const imgSrc = item.filename ? `/static/uploads/${item.filename}` : '/static/images/placeholder.png';
+                            const typeIcon = item.type === 'video' ? 'fa-video' : 'fa-image';
+                            const typeLabel = item.type === 'video' ? 'Video' : 'Image';
+                            
+                            historyItem.innerHTML = `
+                                <img src="${imgSrc}" alt="Thumbnail" class="history-thumb" onerror="this.src='/static/images/placeholder.png'">
+                                <div class="history-info">
+                                    <div class="history-emotion">${item.emotion}</div>
+                                    <div class="history-meta">
+                                        <i class="fas ${typeIcon}"></i> ${typeLabel} • ${new Date(item.timestamp).toLocaleString()}
+                                    </div>
+                                </div>
+                                <div class="history-confidence">${item.confidence.toFixed(1)}%</div>
+                            `;
+                            
+                            historyList.appendChild(historyItem);
+                        });
+                    })
+                    .catch(err => console.error(err));
+            }
+
+            loadHistory();
+            setInterval(loadHistory, 5000);
+
+            // Clear history
+            clearHistoryBtn.addEventListener('click', async () => {
+                if (!confirm('Are you sure you want to clear all history?')) return;
+
+                try {
+                    await fetch('/api/history/clear', { method: 'POST' });
+                    loadHistory();
+                    
+                    document.getElementById('totalPredictions').textContent = '0';
+                    document.getElementById('imagesProcessed').textContent = '0';
+                    document.getElementById('videosProcessed').textContent = '0';
+                    emotionChart.data.datasets[0].data = [0,0,0,0,0,0,0,0,0];
+                    emotionChart.update();
+                } catch (err) {
+                    alert('Error clearing history');
+                }
+            });
+        });
+    </script>
+</body>
+</html>
