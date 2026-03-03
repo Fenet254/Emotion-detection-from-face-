@@ -62,8 +62,16 @@
                 <div class="upload-area" id="imageUploadArea">
                     <i class="fas fa-cloud-upload-alt"></i>
                     <h3>Drop your images here</h3>
-                    <p>or click to browse • Supports JPG, PNG, BMP</p>
+                    <p>or click the button below to browse • Supports JPG, PNG, BMP</p>
                     <input type="file" id="imageInput" accept="image/*" multiple>
+                </div>
+                
+                <!-- Browse Files Button -->
+                <div class="browse-buttons">
+                    <label for="imageInput" class="btn btn-primary browse-btn">
+                        <i class="fas fa-folder-open"></i> Browse Files
+                    </label>
+                    <span class="selected-filename" id="imageFilename">No file selected</span>
                 </div>
                 
                 <div class="preview-container" id="imagePreview">
@@ -155,6 +163,7 @@
             imageInput.addEventListener('change', (e) => {
                 if (e.target.files.length) {
                     handleImageFile(e.target.files[0]);
+                    document.getElementById('imageFilename').textContent = e.target.files[0].name;
                 }
             });
 

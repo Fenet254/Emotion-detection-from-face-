@@ -44,37 +44,133 @@
     <section class="webcam-section">
         <div class="webcam-container">
             <div class="webcam-wrapper">
-                <img src="/api/webcam/feed" class="webcam-video" id="webcamFeed" alt="Webcam Feed">
+                <div id="webcamPlaceholder" class="webcam-placeholder" style="display: flex; flex-direction: column; align-items: center; justify-content: center; background: #1a1a2e; border-radius: 12px; min-height: 400px;">
+                    <i class="fas fa-camera" style="font-size: 4rem; color: #6366f1; margin-bottom: 1rem;"></i>
+                    <p style="color: #9ca3af;">Click "Start Webcam" to begin</p>
+                </div>
+                <img src="" class="webcam-video" id="webcamFeed" alt="Webcam Feed" style="display: none; border-radius: 12px;">
                 <div class="webcam-overlay">
-                    <div class="webcam-status">
+                    <div class="webcam-status" id="webcamStatus" style="display: none;">
                         <span class="status-dot"></span>
                         <span>Live Detection Active</span>
                     </div>
                     <div class="current-emotion" id="currentEmotion">
                         <div class="emotion" id="liveEmotion">Waiting...</div>
-                        <div class="confidence" id="liveConfidence">Start your webcam to detect emotions</div>
+                        <div class="confidence" id="liveConfidence">Click "Start Webcam" to begin</div>
                     </div>
                 </div>
             </div>
             
             <div class="webcam-controls" style="margin-top: 2rem; text-align: center;">
-                <p style="color: var(--text-secondary);">
+                <button id="startWebcam" class="btn btn-primary" style="margin-right: 10px; padding: 12px 24px; font-size: 1rem; border: none; border-radius: 8px; background: #6366f1; color: white; cursor: pointer;">
+                    <i class="fas fa-video"></i> Start Webcam
+                </button>
+                <button id="stopWebcam" class="btn btn-secondary" style="display: none; padding: 12px 24px; font-size: 1rem; border: none; border-radius: 8px; background: #ef4444; color: white; cursor: pointer;">
+                    <i class="fas fa-stop"></i> Stop Webcam
+                </button>
+                <p style="color: var(--text-secondary); margin-top: 1rem;">
                     <i class="fas fa-info-circle"></i> 
                     Allow camera access when prompted. The system will detect faces and analyze emotions in real-time.
                 </p>
+                <div id="modelWarning" class="alert" style="display: none; margin-top: 1rem; padding: 1rem; background: #fef3c7; border-radius: 8px; color: #92400e;">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    <strong>Model not loaded!</strong> Please train the model first for emotion detection.
+                    <a href="/training" style="color: #6366f1;">Go to Training</a>
+                </div>
             </div>
         </div>
     </section>
 
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>
     <script>
-        document.addEventListener('DOMContentLoaded', function() {
+        let webcamStream = null;
+        let isWebcamActive = false;
+        
+        document.addEventListener('DOMContentLoaded', async function() {
+            const startBtn = document.getElementById('startWebcam');
+            const stopBtn = document.getElementById('stopWebcam');
             const webcamFeed = document.getElementById('webcamFeed');
+            const placeholder = document.getElementById('webcamPlaceholder');
+            const webcamStatus = document.getElementById('webcamStatus');
+            const modelWarning = document.getElementById('modelWarning');
             
+            // Check model status
+            try {
+                const response = await fetch('/api/model/status');
+                const data = await response.json();
+                
+                if (!data.loaded) {
+                    modelWarning.style.display = 'block';
+                    document.getElementById('liveConfidence').textContent = 'Model not loaded - emotion detection unavailable';
+                }
+            } catch (err) {
+                console.error('Error checking model status:', err);
+            }
+            
+            // Start webcam
+            startBtn.addEventListener('click', async function() {
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({ 
+                        video: { 
+                            width: { ideal: 640 },
+                            height: { ideal: 480 }
+                        } 
+                    });
+                    
+                    // Show the feed
+                    placeholder.style.display = 'none';
+                    webcamFeed.style.display = 'block';
+                    webcamStatus.style.display = 'flex';
+                    startBtn.style.display = 'none';
+                    stopBtn.style.display = 'inline-block';
+                    
+                    isWebcamActive = true;
+                    webcamStream = stream;
+                    
+                    // Set the img src to our Flask endpoint which provides processed frames
+                    webcamFeed.src = '/api/webcam/feed';
+                    
+                    document.getElementById('liveEmotion').textContent = 'Initializing...';
+                    document.getElementById('liveConfidence').textContent = 'Loading feed...';
+                    
+                } catch (err) {
+                    console.error('Error accessing webcam:', err);
+                    alert('Could not access webcam. Please ensure camera permissions are granted.');
+                }
+            });
+            
+            // Stop webcam
+            stopBtn.addEventListener('click', function() {
+                if (webcamStream) {
+                    webcamStream.getTracks().forEach(track => track.stop());
+                    webcamStream = null;
+                }
+                
+                webcamFeed.src = '';
+                webcamFeed.style.display = 'none';
+                placeholder.style.display = 'flex';
+                webcamStatus.style.display = 'none';
+                startBtn.style.display = 'inline-block';
+                stopBtn.style.display = 'none';
+                isWebcamActive = false;
+                
+                document.getElementById('liveEmotion').textContent = 'Stopped';
+                document.getElementById('liveConfidence').textContent = 'Click "Start Webcam" to begin';
+            });
+            
+            // Handle feed errors
             webcamFeed.onerror = function() {
                 console.log('Webcam stream error');
-                document.getElementById('liveEmotion').textContent = 'Camera not available';
-                document.getElementById('liveConfidence').textContent = 'Please allow camera access';
+                if (isWebcamActive) {
+                    document.getElementById('liveEmotion').textContent = 'Feed Error';
+                    document.getElementById('liveConfidence').textContent = 'Trying to reconnect...';
+                    // Try to reconnect after a delay
+                    setTimeout(() => {
+                        if (isWebcamActive) {
+                            webcamFeed.src = '/api/webcam/feed?' + new Date().getTime();
+                        }
+                    }, 2000);
+                }
             };
         });
     </script>

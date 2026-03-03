@@ -1,5 +1,5 @@
 """
-Emotion Detection Web Application
+Emotion Detection Web Application - Updated Version
 Flask-based web UI for emotion detection with image, video, and webcam support
 """
 
@@ -31,9 +31,21 @@ except Exception as e:
     transforms = None
     models = None
 
-# =====================================================
-# CONFIGURATION
-# =====================================================
+# Try to import sklearn (for sklearn-based model)
+try:
+    import joblib
+    from sklearn.preprocessing import StandardScaler
+    SKLEARN_AVAILABLE = True
+except Exception as e:
+    print(f"Warning: sklearn not available: {e}")
+    SKLEARN_AVAILABLE = False
+    joblib = None
+    StandardScaler = None
+
+# Model type tracker
+MODEL_TYPE = None  # 'pytorch' or 'sklearn'
+SKLEARN_MODEL_DATA = None
+
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'emotion-detection-secret-key-2024'
@@ -175,6 +187,96 @@ def predict_emotion(image_tensor):
     return emotion, confidence_score, all_probs
 
 
+def load_sklearn_model():
+    """Load sklearn model"""
+    global SKLEARN_MODEL_DATA, MODEL_TYPE
+    
+    if not SKLEARN_AVAILABLE:
+        print("sklearn is not available.")
+        return False
+    
+    model_path = 'best_emotion_model.pth'
+    if os.path.exists(model_path):
+        try:
+            SKLEARN_MODEL_DATA = joblib.load(model_path)
+            MODEL_TYPE = 'sklearn'
+            print(f"sklearn model loaded from {model_path}")
+            print(f"Model type: {SKLEARN_MODEL_DATA.get('model_type', 'Unknown')}")
+            print(f"Accuracy: {SKLEARN_MODEL_DATA.get('accuracy', 0)*100:.2f}%")
+            return True
+        except Exception as e:
+            print(f"Error loading sklearn model: {e}")
+            SKLEARN_MODEL_DATA = None
+            return False
+    return False
+
+
+def preprocess_for_sklearn(image):
+    """Preprocess image for sklearn model"""
+    if isinstance(image, Image.Image):
+        image = np.array(image)
+    
+    if len(image.shape) == 3:
+        gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
+    else:
+        gray = image
+    
+    img_size = SKLEARN_MODEL_DATA.get('image_size', 32) if SKLEARN_MODEL_DATA else 32
+    resized = cv2.resize(gray, (img_size, img_size))
+    features = resized.flatten()
+    return features
+
+
+def predict_emotion_sklearn(image):
+    """Predict emotion using sklearn model"""
+    if SKLEARN_MODEL_DATA is None:
+        return None, 0.0, None
+    
+    try:
+        features = preprocess_for_sklearn(image)
+        features = features.reshape(1, -1)
+        
+        if 'scaler' in SKLEARN_MODEL_DATA:
+            features = SKLEARN_MODEL_DATA['scaler'].transform(features)
+        
+        model = SKLEARN_MODEL_DATA['model']
+        prediction = model.predict(features)[0]
+        
+        if hasattr(model, 'predict_proba'):
+            probs = model.predict_proba(features)[0]
+            confidence = np.max(probs)
+        else:
+            confidence = 1.0
+            probs = np.zeros(len(EMOTION_CLASSES))
+            probs[prediction] = confidence
+        
+        if 'label_encoder' in SKLEARN_MODEL_DATA:
+            emotion = SKLEARN_MODEL_DATA['label_encoder'].inverse_transform([prediction])[0]
+        else:
+            emotion = EMOTION_CLASSES[prediction]
+        
+        return emotion, confidence, probs
+        
+    except Exception as e:
+        print(f"sklearn prediction error: {e}")
+        return None, 0.0, None
+
+
+def is_model_loaded():
+    """Check if any model is loaded"""
+    return MODEL is not None or SKLEARN_MODEL_DATA is not None
+
+
+def get_prediction(image):
+    """Get prediction from whichever model is loaded"""
+    if MODEL is not None:
+        image_tensor = preprocess_image(image)
+        return predict_emotion(image_tensor)
+    elif SKLEARN_MODEL_DATA is not None:
+        return predict_emotion_sklearn(image)
+    return None, 0.0, None
+
+
 def detect_faces(frame, face_cascade):
     """Detect faces in a frame"""
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -196,7 +298,7 @@ def index():
     """Main dashboard page"""
     return render_template('index.html', 
                            emotion_classes=EMOTION_CLASSES,
-                           model_loaded=MODEL is not None)
+                           model_loaded=is_model_loaded())
 
 
 @app.route('/upload')
@@ -235,7 +337,8 @@ def results_page():
 def model_status():
     """Get model loading status"""
     return jsonify({
-        'loaded': MODEL is not None,
+        'loaded': is_model_loaded(),
+        'model_type': MODEL_TYPE,
         'device': str(DEVICE) if DEVICE else None,
         'emotion_classes': EMOTION_CLASSES
     })
@@ -251,23 +354,19 @@ def predict_image():
     if file.filename == '':
         return jsonify({'error': 'No file selected'}), 400
     
-    if MODEL is None:
+    if not is_model_loaded():
         return jsonify({'error': 'Model not loaded. Please train the model first.'}), 400
     
     try:
-        # Save uploaded file
         filename = secure_filename(file.filename)
         timestamp = int(time.time())
         saved_filename = f"{timestamp}_{filename}"
         filepath = os.path.join(app.config['UPLOAD_FOLDER'], saved_filename)
         file.save(filepath)
         
-        # Preprocess and predict
         image = Image.open(filepath).convert('RGB')
-        image_tensor = preprocess_image(image)
-        emotion, confidence, all_probs = predict_emotion(image_tensor)
+        emotion, confidence, all_probs = get_prediction(image)
         
-        # Prepare response
         result = {
             'success': True,
             'emotion': emotion,
@@ -278,7 +377,6 @@ def predict_image():
             'timestamp': datetime.now().isoformat()
         }
         
-        # Add to history
         prediction_history.append({
             'type': 'image',
             'emotion': emotion,
@@ -303,33 +401,28 @@ def predict_video():
     if file.filename == '':
         return jsonify({'error': 'No file selected'}), 400
     
-    if MODEL is None:
+    if not is_model_loaded():
         return jsonify({'error': 'Model not loaded. Please train the model first.'}), 400
     
     try:
-        # Save uploaded video
         filename = secure_filename(file.filename)
         timestamp = int(time.time())
         saved_filename = f"{timestamp}_{filename}"
         filepath = os.path.join(app.config['UPLOAD_FOLDER'], saved_filename)
         file.save(filepath)
         
-        # Process video
         output_filename = f"result_{saved_filename}"
         output_path = os.path.join('results', output_filename)
         
-        # Load face cascade
         face_cascade = cv2.CascadeClassifier(
             cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
         )
         
-        # Open video
         cap = cv2.VideoCapture(filepath)
         width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         fps = int(cap.get(cv2.CAP_PROP_FPS))
         
-        # Video writer
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
         out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
         
@@ -343,23 +436,18 @@ def predict_video():
             
             frame_count += 1
             
-            # Detect and predict every 5 frames for speed
             if frame_count % 5 == 0:
                 faces = detect_faces(frame, face_cascade)
                 
                 for (x, y, w, h) in faces:
                     face_roi = frame[y:y+h, x:x+w]
                     if face_roi.size > 0:
-                        image_tensor = preprocess_image(face_roi)
-                        emotion, confidence, _ = predict_emotion(image_tensor)
+                        emotion, confidence, _ = get_prediction(face_roi)
                         
                         if emotion:
                             emotion_counts[emotion] += 1
-                            
-                            # Draw bounding box
                             color = (0, 255, 0)
                             cv2.rectangle(frame, (x, y), (x+w, y+h), color, 2)
-                            
                             label = f"{emotion}: {confidence*100:.1f}%"
                             cv2.putText(frame, label, (x, y-10),
                                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
@@ -369,7 +457,6 @@ def predict_video():
         cap.release()
         out.release()
         
-        # Find dominant emotion
         total_detections = sum(emotion_counts.values())
         if total_detections > 0:
             dominant_emotion = max(emotion_counts, key=emotion_counts.get)
@@ -378,7 +465,6 @@ def predict_video():
             dominant_emotion = "No faces detected"
             dominant_percentage = 0
         
-        # Add to history
         prediction_history.append({
             'type': 'video',
             'emotion': dominant_emotion,
@@ -406,47 +492,68 @@ def predict_video():
 @app.route('/api/webcam/feed')
 def webcam_feed():
     """Generate webcam feed with emotion detection"""
-    if MODEL is None:
-        return jsonify({'error': 'Model not loaded'}), 400
-    
     def generate_frames():
-        cap = cv2.VideoCapture(0)
-        face_cascade = cv2.CascadeClassifier(
-            cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
-        )
-        
-        while True:
-            ret, frame = cap.read()
-            if not ret:
-                break
+        cap = None
+        try:
+            cap = cv2.VideoCapture(0)
+            if not cap.isOpened():
+                frame = np.zeros((480, 640, 3), dtype=np.uint8)
+                cv2.putText(frame, "Camera not available", (150, 240), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+                cv2.putText(frame, "Please allow camera access", (170, 280), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+                ret, buffer = cv2.imencode('.jpg', frame)
+                frame_bytes = buffer.tobytes()
+                yield (b'--frame\r\n'
+                       b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+                return
             
-            # Detect faces
-            faces = detect_faces(frame, face_cascade)
+            face_cascade = cv2.CascadeClassifier(
+                cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
+            )
             
-            # Process each face
-            for (x, y, w, h) in faces:
-                face_roi = frame[y:y+h, x:x+w]
-                if face_roi.size > 0:
-                    image_tensor = preprocess_image(face_roi)
-                    emotion, confidence, _ = predict_emotion(image_tensor)
-                    
-                    if emotion:
-                        # Draw bounding box
-                        color = (0, 255, 0)
-                        cv2.rectangle(frame, (x, y), (x+w, y+h), color, 2)
-                        
-                        label = f"{emotion}: {confidence*100:.1f}%"
-                        cv2.putText(frame, label, (x, y-10),
-                                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
-            
-            # Encode frame
+            while True:
+                ret, frame = cap.read()
+                if not ret:
+                    break
+                
+                faces = detect_faces(frame, face_cascade)
+                
+                if is_model_loaded():
+                    for (x, y, w, h) in faces:
+                        face_roi = frame[y:y+h, x:x+w]
+                        if face_roi.size > 0:
+                            emotion, confidence, _ = get_prediction(face_roi)
+                            
+                            if emotion:
+                                color = (0, 255, 0)
+                                cv2.rectangle(frame, (x, y), (x+w, y+h), color, 2)
+                                label = f"{emotion}: {confidence*100:.1f}%"
+                                cv2.putText(frame, label, (x, y-10),
+                                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
+                else:
+                    for (x, y, w, h) in faces:
+                        cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 255), 2)
+                    cv2.putText(frame, "Model not loaded - Training required", 
+                               (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+                
+                ret, buffer = cv2.imencode('.jpg', frame)
+                frame_bytes = buffer.tobytes()
+                
+                yield (b'--frame\r\n'
+                       b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+        except Exception as e:
+            print(f"Webcam error: {e}")
+            frame = np.zeros((480, 640, 3), dtype=np.uint8)
+            cv2.putText(frame, f"Error: {str(e)}", (150, 240), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
             ret, buffer = cv2.imencode('.jpg', frame)
             frame_bytes = buffer.tobytes()
-            
             yield (b'--frame\r\n'
                    b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
-        
-        cap.release()
+        finally:
+            if cap is not None:
+                cap.release()
     
     return Response(generate_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
@@ -518,9 +625,15 @@ def clear_history():
 # =====================================================
 
 if __name__ == '__main__':
-    # Try to load model on startup
     print("Loading model...")
-    load_trained_model()
     
-    # Run app
+    model_loaded = load_trained_model()
+    
+    if not model_loaded and SKLEARN_AVAILABLE:
+        print("Trying sklearn model...")
+        model_loaded = load_sklearn_model()
+    
+    if not model_loaded:
+        print("WARNING: No model loaded. Please train the model.")
+    
     app.run(debug=True, host='0.0.0.0', port=5000)
